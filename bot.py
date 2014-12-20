@@ -30,10 +30,17 @@ else:
 #
 # factory.doStop()/.doStart maybe?
 
+# todo clean shutdowns once again
+
 # TODO: refactor to make passing around exchanges and configuration easier/better.
 # TODO: Services
 # TODO: rethink logging
 # TODO: replace bitstampwatcher
+
+# todo type/rtype for all methods/functions in all 3 projects
+# see https://www.jetbrains.com/pycharm/webhelp/type-hinting-in-pycharm.html
+
+# todo support for invite-only channels, maybe password-protected as well.
 #####################
 
 log = logging.getLogger("ircbot")
@@ -132,7 +139,7 @@ class TwoBitBotFactory(ReconnectingClientFactory):
     def __init__(self, config):
         self.config = config
         self.ratelimiter = ratelimit.ExponentialRateLimiter(
-            max_delay=5*60, base_factor=2, reset_after=30*60)
+            max_delay=self.config['max_command_usage_delay'], base_factor=2, reset_after=30*60)
 
     def buildProtocol(self, addr):
         proto = TwoBitBotIRC(self.config)
