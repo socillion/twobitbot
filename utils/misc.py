@@ -67,12 +67,13 @@ def now_in_utc_secs():
     return int(calendar.timegm(time.gmtime()))
 
 
-def truncatefloat(num):
-    """Takes a float, returns a string. Return value is capped at 2 digits after the decimal and
+def truncatefloat(num, decimals=2, commas=False):
+    """Takes a float, returns a string. Return value is capped at N digits after the decimal and
     trailing zeros are removed, as well as the decimal if nothing but 0s after it."""
     # remove extraneous trailing 0s and . as well as reduce to max 2 digits after decimal point
     # fixed bug: must be 2 different rstrips, rstrip('0.') will strip 100.00 to 1 instead of 100
+    fmt_str = '{:' + (',' if commas else '') + '.{}f}}'.format(decimals)
     try:
-        return ('%.2f' % (num)).rstrip('0').rstrip('.')
+        return fmt_str.format(num).rstrip('0').rstrip('.')
     except TypeError:
         log.error("truncatefloat was passed a bad type: %s of type %s" % (num, type(num).__name__), exc_info=True)
