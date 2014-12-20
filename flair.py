@@ -107,7 +107,7 @@ class FlairGame(object):
 
         old = yield self._users_current_flair(user)
         try:
-            price = self._determine_flair_price(position, getattr(old, 'position'))
+            price = self._determine_flair_price(position, getattr(old, 'position', None))
         except NoExchangeDataError:
             defer.returnValue(FlairGame.msg_no_orderbook_data)
         except ValueError:
