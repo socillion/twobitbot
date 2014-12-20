@@ -1,0 +1,6 @@
+Twisted>=14.0.0
+configobj>=5.0.6
+treq>=0.2.1
+pyopenssl>=0.14
+wolframalpha>=1.2
+autobahn>=0.8.9

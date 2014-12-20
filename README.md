@@ -2,11 +2,11 @@ Two Bit Bot
 =======
 Twobitbot is an IRC bot built using Twisted in Python 2.7.
 
-It has an arsenal of features aimed at Bitcoin and cryptocurrency traders, such as paper trading and whale alerts.
+It has an arsenal of features aimed at Bitcoin and cryptocurrency traders, such as paper trading and large trade alerts.
 
-With a configuration file set up, it can be started with `python bot.py`.
+With a configuration file set up at `bot.ini`, it can be started with `bot.sh start`, `twistd -y ircbot.tac`, or `python bot.py`.
 
-Currently version 1.03, find up-to-date source at https://github.com/socillion/twobitbot
+Currently version 1.04, find up-to-date source at https://github.com/socillion/twobitbot
 
 Features
 =======
@@ -18,9 +18,12 @@ Commands
 =======
 * `!time <location>`
     * Looks up the current time in a given location - use it to convert between timezones
-* `!flair <bear|bull>`, `!flair status <username (optional)>`, `!flair top`
-    * Flair is a paper-trading feature bound to IRC nicknames. This sacrifices some security due to users
-    being able to 'steal' nicknames, but makes it a more usable feature than if it required logging in.
+* `!flair <long|fiat|short>`, `!flair status <username (optional)>`, `!flair top`
+    * Flair is a paper-trading feature bound to IRC nicknames. 
+* `!wolfram <query>`, `!math <query>`
+    * Use Wolfram Alpha to do math and get information
+* `!forex <amount> <pair>`, `!forex <pair>`, `!forex <amount> <one currency> to <another currency>`
+    * Convert between currencies using real time forex rates.
 * `!help` for a list of commands
 
 Configuration
@@ -28,13 +31,11 @@ Configuration
 Twobitbot is configured via INI files in the main directory - `bot.ini`, with a fallback to `default.ini`.
 See `default.ini` for an explanation of available configuration options.
 
-NOTE: the active configuration file currently cannot be edited while the application is running,
-because it will be overwritten at shutdown.
+NOTE: currently the bot must be restarted for configuration changes to be applied.
 
 License
 =======
 Twobitbot is licensed under the MIT License except where otherwise noted.
-The complete text is located in `./LICENSE`.
 
 Files & Modules
 =======
@@ -54,7 +55,7 @@ Files & Modules
 
 Requirements
 =======
-Although there are future plans to change this, currently twobitbot must be installed manually.
+Twobitbot currently can only be installed manually.
 It depends on:
 
 * `python27`
@@ -63,49 +64,28 @@ It depends on:
 * `twisted`
 * `treq`
 * `pyopenssl`
+* `wolframalpha`
 
-* `bitcoinapis` at https://github.com/socillion/bitcoinapis
-    * `autobahn`
-    * `twistedpusher` at https://github.com/socillion/twistedpusher
-
+* `exchangelib` at https://github.com/socillion/exchangelib
 
 Note: `pyopenssl` depends on `cryptography`, which can be annoying to install.
 See instructions here: https://github.com/pyca/cryptography/blob/master/docs/installation.rst
 
-Future features
+Todo
 =======
-* Exchange wall alerts
-* Support for alerts on additional exchanges, including Bitfinex, BTC-e, and Huobi
-* User commands to list exchange prices, volume, etc
-* Mining difficulty command?
-* Competitive elements added to the flair paper-trading, such as a scoreboard. In addition, allow users to see
-current sentiment (ratio of bull vs bear).
-* bitfinex hidden wall detection
-* change flair bear to short instead of fiat?
-* last seen feature
-
-Other Todo
-=======
-* rethink volume alert system
-* clean up callbacks
-* refactor how configuration is used and add some more options
-    * rate limiting (flair and bot)
-* finish converting all code to use Decimals (sqlite3 converter/adapter)
-* possibly change flair to use BTC value instead of USD
-* add telnet/web/similar interface in addition to terminal+irc?
-* make auxiliary classes into twisted services
-* convert to an application for use with twistd
-* testing
-* packaging
-* add wall tracking
-* add better live_orders support and Bitstamp HTTP API
-* rethink logging
-
+See `TODO.md`
 
 Changelog
 =======
-v1.04
-* add config: volume_alert_threshold
+v1.04 Dec 20, 2014
+* Added commands:
+    * !math and !wolfram commands via Wolfram Alpha
+    * !forex conversions using rates from the ECB and elsewhere
+    * !swaps for Bitfinex swap statistics
+* Created a launch bash script `bot.sh`
+* Upgraded flair game - added shorting (DB format is incompatible with 1.04)
+* Implemented config options: volume_alert_threshold, max_command_usage_delay, 
+    flair_change_delay, flair_top_list_size, wolfram_alpha_api_key, open_exchange_rates_app_id
 
 v1.03 Apr 7, 2014
 * switch bitstamp api code to twisted using TwistedPusher
