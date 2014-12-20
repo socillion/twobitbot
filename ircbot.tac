@@ -20,6 +20,7 @@ class BotSvc(service.Service):
         self.irc = None
 
     def startService(self):
+        service.Service.startService(self)
         if not self.config:
             try:
                 self.config = configure.load_config()
@@ -33,6 +34,7 @@ class BotSvc(service.Service):
         reactor.connectTCP(self.config['server'], self.config['server_port'], self.irc)
 
     def stopService(self):
+        service.Service.stopService(self)
         log.info("Stopping bot service.")
 
 
