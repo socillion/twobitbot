@@ -5,6 +5,7 @@ from twisted.internet import defer, threads
 import logging
 import datetime
 from decimal import Decimal
+import inspect
 
 from twobitbot import utils
 from twobitbot.flair import FlairGame
@@ -53,31 +54,58 @@ class BotResponder(object):
         if msg.startswith(self.config['command_prefix']):
             args = msg.split()
             # remove the prefix
-            args[0] = args[0][len(self.config['command_prefix']):]
-
-            cmd = args[0].lower()
+            cmd = args[0][len(self.config['command_prefix']):]
+            #cmd = args[0].lower()
             args = args[1:]
-            try:
-                cmd_method = getattr(self, 'cmd_' + cmd)
-            except AttributeError as e:
-                log.debug('Invalid command {0} used by {1} with arguments {2}'.format(cmd, user, args))
-            else:
+            cmd_method = self._lookup_cmd(cmd)
+            #if cmd_method is None:
+            #    log.debug('Invalid command {0} used by {1} with arguments {2}'.format(cmd, user, args))
+            #else:
+            if cmd_method is not None:
                 try:
                     return cmd_method(user, *args)
                 except TypeError as e:
                     log.warn('Issue dispatching {0} for {1} (cmd={2}, args={3}'.format(cmd_method, user, cmd, args),
                              exc_info=True)
 
+    def _lookup_cmd(self, cmd):
+        """ Convert a command name to a Callable that performs the named command.
+        :type cmd: str or unicode
+        :rtype: collections.Callable
+        """
+        cmd = cmd.lower()
+        return getattr(self, 'cmd_' + cmd, None)
+
+    def cmd_help(self, user=None, *msg):
+        #help_str = ("Commands: {0}time <location>, {0}flair <long|fiat|short>, {0}flair status [user], {0}flair top, "
+        #            "{0}forex <conversion>, {0}wolfram <query>, {0}swaps").format(self.config['command_prefix'])
+        cmds = ('time', 'flair', 'forex', 'wolfram', 'swaps')
+        help_str = ("Commands: {}. Use {}help <command> for more information "
+                    "on a specific one.").format(', '.join(cmds), self.config['command_prefix'])
+        if len(msg) == 1:
+            cmd_name = msg[0]
+            cmd = self._lookup_cmd(cmd_name)
+            # getdoc returns None if the cmd is invalid or the docstring is empty
+            cmd_doc = inspect.getdoc(cmd) or ''
+
+            # todo allow help messages that continue on multiple lines
+            # find the first line in cmd_doc that starts with ':help: ' and pull out the rest of that line
+            help_lines = [s for s in cmd_doc.splitlines() if s.startswith(':help: ')]
+            if help_lines:
+                # todo arbitrary command prefixes for command help messages
+                help_str = '{}{}: {}'.format(self.config['command_prefix'], cmd_name, help_lines[0][7:])
+
+        # default to returning the generic help string specified at the start
+        return help_str
+
     def cmd_donate(self, user=None):
         return "Bitcoin donations accepted at %s." % (self.config['btc_donation_addr'])
 
-    def cmd_help(self, user=None):
-        # todo update help stuff
-        return ("Commands: {0}time <location>, {0}flair <long|fiat|short>, {0}flair status [user], {0}flair top, "
-                "{0}forex <conversion>, {0}wolfram <query>, {0}swaps").format(self.config['command_prefix'])
-
     @defer.inlineCallbacks
     def cmd_time(self, user, *msg):
+        """
+        :help: look up the time in a specific location. Example: !time ukraine.
+        """
         # small usability change since users sometimes misuse this
         # command as "!time in X" instead of "!time X"
         if len(msg) >= 2 and msg[0] == 'in':
@@ -98,7 +126,10 @@ class BotResponder(object):
             defer.returnValue("Invalid location.")
 
     @defer.inlineCallbacks
-    def cmd_math(self, user, *msg):
+    def cmd_wolfram(self, user, *msg):
+        """
+        :help: query Wolfram Alpha for information. Example: !wolfram 3cm to in.
+        """
         # todo:
         # - fucks up unicode (try "!math price of 1 bitcoin")
         # - messes up multi line output (try "!math licks to get to the center of a tootsie pop")
@@ -122,10 +153,12 @@ class BotResponder(object):
             # todo replace this unicode literal with unicode_literal future import
             defer.returnValue(u"{}: {}".format(user, answer))
 
-    def cmd_wolfram(self, user, *msg):
-        return self.cmd_math(user, *msg)
+    cmd_math = cmd_wolfram
 
     def cmd_forex(self, user, *msg):
+        """
+        :help: convert between currencies using real-time forex rates. Examples: !forex 123 usd to cny, !forex 9001 ilsusd, !forex eurusd.
+        """
         # todo consider accepting queries like !fx xau where the usd part of xauusd is just implicit
         if len(msg) == 1 and len(msg[0]) == 6:
             # has to be an invocation like !forex cnyusd
@@ -144,10 +177,7 @@ class BotResponder(object):
             to_currency = msg[3]
         elif len(msg) == 0:
             # spit out help message
-            # todo update help msg
-            return ("ECB forex rates, updated daily. Usage: "
-                    "{0}forex cnyusd, {0}forex 5000 mxneur, {0}forex 9001 eur to usd.").format(
-                        self.config['command_prefix'])
+            return self.cmd_help(user, 'forex')
         else:
             # unsupported usage
             return
@@ -169,10 +199,12 @@ class BotResponder(object):
             # todo display info on data source
             return "{} {} is {} {}".format(amount_str, from_currency.upper(), converted_str, to_currency.upper())
 
-    def cmd_fx(self, *msg):
-        return self.cmd_forex(*msg)
+    cmd_fx = cmd_forex
 
     def cmd_flair(self, user, *msg):
+        """
+        :help: Bitcoin paper trading using Bitstamp prices. Usage: !flair <long|fiat|short>, !flair status, !flair status <user>, !flair top.
+        """
         if len(msg) == 0:
             log.info("No flair subcommand specified, so returning %s's flair stats." % (user))
             return self.flair.status(user)
@@ -191,12 +223,15 @@ class BotResponder(object):
             log.info("Returning top flair user statistics for %s" % (user))
             return self.flair.top(count=self.config['flair_top_list_size'])
         else:
-#        elif cmd == 'bull' or cmd == 'bear':
+            # not a known command, so attempt to interpret as an alias
+            # of flair.change (e.g. !flair long, !flair bull)
             log.info("Attempting to change %s's flair to %s" % (user, cmd))
             return self.flair.change(user, cmd)
 
     @defer.inlineCallbacks
     def cmd_swaps(self, user, *msg):
+        """
+        :help: current Bitfinex swap data. Swaps must be borrowed to open margin positions, so for example a 5 BTC short requires 5 BTC in swaps."""
         if not self.bfx_swap_data_time or utils.now_in_utc_secs() - self.bfx_swap_data_time > 5*30:
             self.bfx_swap_data = dict()
             # 2 for loops here so all 3 requests get sent ASAP
