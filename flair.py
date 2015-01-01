@@ -4,6 +4,9 @@ import logging
 import datetime
 from decimal import Decimal
 from collections import namedtuple
+import itertools
+import functools
+import operator
 
 from twisted.internet import defer, reactor
 from twisted.application import service
@@ -60,6 +63,7 @@ class Position(object):
 FlairRow = namedtuple('FlairRow2', ['user', 'position', 'price', 'usd_amount', 'timestamp'])
 
 
+# todo move messages out of main functions, over to botresponder or to other functions?
 class FlairGame(object):
     usd_pip = Decimal(100*100)
     msg_no_orderbook_data = "I have no recent orderbook data. Please try again later."
@@ -141,25 +145,89 @@ class FlairGame(object):
                                        user=user, position=Position.to_text(position), btc_str=btc_str,
                                        price=price, balance=new_usd_balance)))
 
+    # todo rename to best/worst
+    # todo rethink return values of these --- is a fully formatted string the best to have as an only option
     @defer.inlineCallbacks
     def top(self, count=5):
-        rows = yield self._all_flairs()
-
-        if rows:
-            # normalized_users stores dicts of user, position, usd balance including unrealized p/l
-            normalized_users = list()
-
-            for row in rows:
-                try:
-                    _, usd_balance = self._calc_profit_loss(row.position, row.price, row.usd_amount)
-                except NoExchangeDataError:
-                    defer.returnValue(FlairGame.msg_no_orderbook_data)
-                normalized_users.append({'user': row.user,
-                                         'position': Position.to_text(row.position),
-                                         'balance': usd_balance})
+        try:
+            normalized_users = yield self._all_current_balances()
+        except NoExchangeDataError:
+            defer.returnValue(FlairGame.msg_no_orderbook_data)
+        else:
             top = sorted(normalized_users, key=lambda usr: (usr['balance'], usr['user']), reverse=True)
-            top_strs = ["{0[user]} ({0[position]} with ${0[balance]:.2f})".format(user_row) for user_row in top[:count]]
+            top_strs = ["{0[user]} ({0[position]} with ${0[balance]:.2f})".format(user) for user in top[:count]]
             defer.returnValue("Top flair users: " + ', '.join(top_strs))
+
+    @defer.inlineCallbacks
+    def bottom(self, count=5):
+        try:
+            normalized_users = yield self._all_current_balances()
+        except NoExchangeDataError:
+            defer.returnValue(FlairGame.msg_no_orderbook_data)
+        else:
+            bottom = sorted(normalized_users, key=lambda usr: (usr['balance'], usr['user']))
+            bottom_strs = ["{0[user]} ({0[position]} with ${0[balance]:.2f})".format(user) for user in bottom[:count]]
+            defer.returnValue("Bottom flair users: " + ', '.join(bottom_strs))
+
+    @defer.inlineCallbacks
+    def sentiment(self):
+        # todo reconsider the scheme for this, and maybe add a sentiment variety that takes more users into account
+        # and not just the top/bottom N
+        # alternatively, rename to !flair prediction and add a !flair sentiment avg of all users?
+
+        # Original plan for this was to do AVG(best_flairs, inverse(worst_flairs))
+        # The problem with this is people intentionally doing the worst possible. However, does this matter?
+        # They can be expected to be the best at doing poorly, and this changing their flair opposite the trend.
+
+        # How about instead doing weights along a range of [2,0.5] on the top N descending and then taking the average?
+        # With an even number of flairs and the same periodicity, it would average to a weight of 1.
+        count = 5
+        try:
+            normalized_users = yield self._all_current_balances()
+        except NoExchangeDataError:
+            defer.returnValue(FlairGame.msg_no_orderbook_data)
+        else:
+            if len(normalized_users) <= count*2:
+                count = len(normalized_users)/2
+
+            # best at 0, worst at n
+            sorted_users = sorted(normalized_users, key=lambda usr: (usr['balance'], usr['user']), reverse=True)
+            # todo prune based on age to reduce # of inactive users in stats
+
+            best = sorted_users[:count]
+            worst = sorted_users[-count:]
+
+           # switch to a [0,2] range instead of [-1,1] for positions
+            best_positions = [Position.from_text(user['position'])+1 for user in best]
+            worst_positions = []
+            for user in worst:
+                # invert direction for worst
+                worst_positions.append((Position.from_text(user['position'])*-1)+1)
+
+            total_score = functools.reduce(operator.add, itertools.chain(best_positions, worst_positions))
+            avg_score = total_score/float(count*2)
+
+            # scores are between 0 and 2. < 1 = bear, > 1 = bull, == 1 = split/undecided/confounded.
+            if 1 < avg_score <= 2:
+                score_str = 'bullish'
+            elif avg_score == 1:
+                score_str = 'confounded'
+            elif 0 <= avg_score < 1:
+                score_str = 'bearish'
+            else:
+                raise ValueError(("Impossible average score of {}, total score "
+                                  "of {}. Range is [0,2].").format(avg_score, total_score))
+
+            if avg_score <= 0.5 or avg_score >= 1.5:
+                score_str = 'very ' + score_str
+
+            log.info(("Best: {}. Worst: {}. Total score: {:d}. "
+                      "Average: {:.2f}. Determination: {}.").format(best_positions,
+                                                                    worst_positions,
+                                                                    total_score,
+                                                                    avg_score,
+                                                                    score_str))
+            defer.returnValue("Current flair sentiment: " + score_str + ".")
 
     @defer.inlineCallbacks
     def status(self, user):
@@ -192,6 +260,22 @@ class FlairGame(object):
 
     ##### helper methods below this point #####
 
+    @defer.inlineCallbacks
+    def _all_current_balances(self):
+        """Calculate current user balances, including unrealized P/L.
+        Output: list of dicts with keys 'user', 'position', 'balance'."""
+        # todo something similar to this for specific users
+        users = yield self._all_flairs()
+        # normalized_users stores dicts of user, position, usd balance including unrealized p/l
+        normalized_users = []
+        if users:
+            for user in users:
+                _, usd_balance = self._calc_profit_loss(user.position, user.price, user.usd_amount)
+                normalized_users.append({'user': user.user,
+                                         'position': Position.to_text(user.position),
+                                         'balance': usd_balance})
+        defer.returnValue(normalized_users)
+
     def _calc_profit_loss(self, position, open_price, open_usd_amount, close_price=None):
         """Returns a tuple of profit/loss and the resulting fiat balance."""
         if not close_price:
@@ -221,11 +305,13 @@ class FlairGame(object):
 
         bid = self.watcher.highestbid
         ask = self.watcher.lowestask
-        mid = (bid + ask) / 2
 
+        # todo maybe make the exchangewatcher throw an error instead of doing it here
         if not bid or not ask:
             log.error('Bad exchange price data: bid {} ask {}'.format(bid, ask))
             raise NoExchangeDataError
+
+        mid = (bid + ask) / 2
 
         if position != prev_position:
             if position == Position.BULL or (position == Position.NEUTRAL and

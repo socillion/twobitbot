@@ -222,6 +222,9 @@ class BotResponder(object):
         elif cmd == 'top':
             log.info("Returning top flair user statistics for %s" % (user))
             return self.flair.top(count=self.config['flair_top_list_size'])
+        elif cmd == 'sentiment':
+            log.info("Returning top flair sentiment stats for {}".format(user))
+            return self.flair.sentiment()
         else:
             # not a known command, so attempt to interpret as an alias
             # of flair.change (e.g. !flair long, !flair bull)
