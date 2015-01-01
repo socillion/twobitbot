@@ -165,6 +165,10 @@ class BotResponder(object):
             amount = 1
             from_currency = msg[0][:3]
             to_currency = msg[0][3:]
+        elif len(msg) == 1 and len(msg[0]) == 3:
+            amount = 1
+            from_currency = 'usd'
+            to_currency = msg[0]
         elif len(msg) == 2 and len(msg[1]) == 6:
             # has to be an invocation like !forex 2345 eurusd
             amount = msg[0]
@@ -186,13 +190,15 @@ class BotResponder(object):
             return
 
         try:
+            # dirty fix to allow commas in amounts
+            amount = Decimal(str(amount).replace(',', ''))
             converted = self.forex.convert(amount, from_currency, to_currency)
         except ValueError as e:
             log.info('Forex conversion issue: {}'.format(e.message))
         else:
             if converted <= 1e-4 or converted >= 1e20:
                 # These are arbitrary but at least the upper cap is 100% required to avoid situations like
-                # !forex 10e23892348 RUBUSD which DDoS the bot and then the channel once it finally prints it.
+                # !forex 10e23892348 RUBUSD which DoSes the bot and then the channel once it finally prints it.
                 return None
             amount_str = utils.truncatefloat(Decimal(amount), decimals=5, commas=True)
             converted_str = utils.truncatefloat(converted, decimals=5, commas=True)
