@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from twisted.internet import defer, threads
+from twisted.internet import defer
 
 import logging
 import datetime
@@ -9,6 +9,7 @@ import inspect
 
 from twobitbot import utils
 from twobitbot.flair import FlairGame
+from twobitbot.utils import wolfram
 from exchangelib import forex, bitfinex
 
 log = logging.getLogger(__name__)
@@ -26,11 +27,10 @@ class BotResponder(object):
                                change_delay=self.config['flair_change_delay'])
 
         if self.config['wolfram_alpha_api_key']:
-            import wolframalpha
-            self.wolframalpha = wolframalpha.Client(self.config['wolfram_alpha_api_key'])
+            self.wolfram = wolfram.WolframAlpha(self.config['wolfram_alpha_api_key'])
         else:
-            self.wolframalpha = False
-            """:type: wolframalpha.Client"""
+            self.wolfram = False
+            """:type: wolfram.WolframAlpha"""
 
         self.forex = forex.ForexConverterService(self.config['open_exchange_rates_app_id'])
         self.forex.startService()
@@ -60,6 +60,10 @@ class BotResponder(object):
             cmd_method = self._lookup_cmd(cmd)
             #if cmd_method is None:
             #    log.debug('Invalid command {0} used by {1} with arguments {2}'.format(cmd, user, args))
+
+            # todo change dispatch to import modules in a 'commands' package
+            # this would also allow dynamic reloading of a command, maybe if a debug=True attribute is set
+
             #else:
             if cmd_method is not None:
                 try:
@@ -125,35 +129,43 @@ class BotResponder(object):
         else:
             defer.returnValue("Invalid location.")
 
-    @defer.inlineCallbacks
     def cmd_wolfram(self, user, *msg):
         """
         :help: query Wolfram Alpha for information. Example: !wolfram 3cm to in.
         """
-        # todo:
-        # - fucks up unicode (try "!math price of 1 bitcoin")
-        # - messes up multi line output (try "!math licks to get to the center of a tootsie pop")
-        # - works on website but not API (try "!math price of gas in portland oregon")
-        #       fails for 'pi'...
-        # another broken one: 'weather in denver colorado'. Works on website.
-        # OK. looks like I just can't use .results, see
-        # https://api.wolframalpha.com/v2/query?appid=PT5W9R-HUPGU4U33P&input=pi
-        # Would have to ignore 'Identity' pod...
-        # todo consider stripping newlines in some cases, e.g. the temperature queries, where its 2 very short lines
-        if not self.wolframalpha:
+        # http://products.wolframalpha.com/api/documentation.html
+        if not self.wolfram:
             log.warn("Could not respond to a !math or !wolfram command because no Wolfram Alpha API key is set")
-            defer.returnValue(None)
-        else:
-            user_query = ' '.join(msg)
-            log.info("Querying Wolfram Alpha with '{}' for '{}'".format(user_query, user))
-            response = yield threads.deferToThread(self.wolframalpha.query, user_query)
+            return None
 
-            answer = next(response.results, '')
-            answer = answer.text.strip() if answer else "I don't know what you mean."
-            # todo replace this unicode literal with unicode_literal future import
-            defer.returnValue(u"{}: {}".format(user, answer))
+        user_query = ' '.join(msg).strip()
+        if user_query:
+            def success(result):
+                # todo truncate/reflow results when necessary (some queries are very spammy, such as weather in X)
+                # todo consider stripping newlines in some cases e.g. temperature queries, where its 2 very short lines
+                # todo 'assumptions'?
+                # todo validatequery?
+
+                # todo replace this unicode literal with unicode_literal future import
+                if result:
+                    return u"{}: {}".format(user, result)
+
+            def err(fail):
+                e = fail.trap(wolfram.WolframAlphaAPIError, wolfram.WolframAlphaTimeoutError)
+                if e == wolfram.WolframAlphaAPIError:
+                    return "{}: there was an error processing your query.".format(user)
+                elif e == wolfram.WolframAlphaTimeoutError:
+                    return "{}: your query timed out.".format(user)
+                else:
+                    return fail
+
+            log.info("Querying Wolfram|Alpha with '{}' for '{}'".format(user_query, user))
+            d = self.wolfram.query(user_query)
+            d.addCallbacks(success, err)
+            return d
 
     cmd_math = cmd_wolfram
+    cmd_wa = cmd_wolfram
 
     def cmd_forex(self, user, *msg):
         """

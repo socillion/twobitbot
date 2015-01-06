@@ -3,4 +3,5 @@ configobj>=5.0.6
 treq>=0.2.1
 pyopenssl>=0.14
 wolframalpha>=1.2
+tungsten>=0.1.1
 autobahn>=0.8.9
