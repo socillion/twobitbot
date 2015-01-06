@@ -8,6 +8,7 @@ from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.words.protocols import irc
 
 from twobitbot.bitstampwatcher import BitstampWatcher
+from twobitbot.bitfinexwatcher import BitfinexWatcher
 from twobitbot.utils import ratelimit, configure
 from twobitbot import botresponder
 
@@ -51,10 +52,12 @@ class TwoBitBotIRC(irc.IRCClient):
         self.config = config
 
         self.bitstamp = BitstampWatcher(triggervolume=self.config['volume_alert_threshold'])
+        # BitfinexWatcher is crippled and only does bid/ask, no volume alerts
+        self.bitfinex = BitfinexWatcher()
         self.channels = list()
         self.broadcast_to_channels = list()
         #self.broadcast_to_users = list()
-        self.responder = botresponder.BotResponder(self.config, self.bitstamp)
+        self.responder = botresponder.BotResponder(self.config, self.bitfinex)
 
     # todo this overwrites ircclient var
     @property
